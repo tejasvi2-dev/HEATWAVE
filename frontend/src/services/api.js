@@ -12,11 +12,28 @@ import {
 } from './mockData';
 
 // ============================================================
+// Base URL Configuration
+// Supports:
+// 1. VITE_API_URL set in Vercel / production (e.g. https://heatguard-ai.onrender.com)
+// 2. Fallback to '/api' for local Vite dev proxy
+// ============================================================
+export const getBaseURL = () => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (!envUrl || typeof envUrl !== 'string' || envUrl.trim() === '') {
+    return '/api';
+  }
+  const clean = envUrl.trim().replace(/\/+$/, '');
+  return clean.endsWith('/api') ? clean : `${clean}/api`;
+};
+
+export const API_BASE_URL = getBaseURL();
+
+// ============================================================
 // Axios Instance
 // ============================================================
 const api = axios.create({
-  baseURL: '/api',
-  timeout: 10000,
+  baseURL: API_BASE_URL,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -25,7 +42,6 @@ const api = axios.create({
 // --- Request Interceptor ---
 api.interceptors.request.use(
   (config) => {
-    // Could add auth tokens here in the future
     return config;
   },
   (error) => Promise.reject(error)
@@ -36,9 +52,9 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response) {
-      console.error(`API Error [${error.response.status}]:`, error.response.data);
+      console.warn(`API Error [${error.response.status}] from ${error.config?.url}:`, error.response.data);
     } else if (error.request) {
-      console.warn('API unreachable — backend may be offline. Falling back to demo data.');
+      console.warn('API unreachable (backend offline, CORS or cold-starting). Using demo fallback.');
     } else {
       console.error('API request setup error:', error.message);
     }
@@ -56,9 +72,20 @@ const withFallback = async (apiCall, fallbackData) => {
     const unwrapped = rawData?.data !== undefined ? rawData.data : rawData;
     return { data: unwrapped, raw: rawData, isDemo: false };
   } catch (err) {
-    console.warn('API call failed, using demo data fallback:', err?.message || err);
+    console.info('[HeatGuard AI] Using calibrated demo data fallback.');
     return { data: fallbackData, raw: fallbackData, isDemo: true };
   }
+};
+
+// ============================================================
+// Health API
+// ============================================================
+export const healthAPI = {
+  check: () =>
+    withFallback(
+      () => api.get('/health'),
+      { status: 'demo', service: 'heatguard-demo-mode', timestamp: new Date().toISOString() }
+    ),
 };
 
 // ============================================================
@@ -86,7 +113,7 @@ export const wardAPI = {
   getByName: (name) =>
     withFallback(
       () => api.get(`/wards/${encodeURIComponent(name)}`),
-      mockWards.find((w) => w.name === name) || mockWards[0]
+      mockWards.find((w) => (w.name || w.wardName) === name) || mockWards[0]
     ),
 };
 
